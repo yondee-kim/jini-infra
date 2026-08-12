@@ -1,4 +1,5 @@
 services:
+  # ================= DB =================
   postgres-auth:
     image: postgres:16
     container_name: jini-postgres-auth
@@ -32,6 +33,61 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ================= 서비스 =================
+  jini-auth:
+    build: ../jini-auth
+    container_name: jini-auth
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      # 컨테이너 내부는 5432, 호스트가 아니라 서비스명으로 접근
+      DB_URL: jdbc:postgresql://postgres-auth:5432/auth_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: mysecret
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION_MS: 3600000
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET}
+      # 브라우저 기준 주소이므로 localhost:8080 유지 (서비스명 아님)
+      APP_OAUTH2_REDIRECT_URI: http://localhost:8080/ui/auth/login.html
+
+  jini-chat:
+    build: ../jini-chat
+    container_name: jini-chat
+    depends_on:
+      postgres-chat:
+        condition: service_healthy
+    ports:
+      - "8082:8082"
+    extra_hosts:
+      # 호스트(로컬 PC)에서 도는 Ollama에 접근하기 위함
+      - "host.docker.internal:host-gateway"
+    environment:
+      DB_URL: jdbc:postgresql://postgres-chat:5432/chat_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: mysecret
+      JWT_SECRET: ${JWT_SECRET}
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+
+  jini-gateway:
+    build: ../jini-gateway
+    container_name: jini-gateway
+    depends_on:
+      - jini-auth
+      - jini-chat
+    ports:
+      - "8080:8080"
+    environment:
+      # 라우팅 대상을 서비스명으로 주입 (application.yml 기본값 localhost를 덮어씀)
+      AUTH_URI: http://jini-auth:8081
+      CHAT_URI: http://jini-chat:8082
 
 volumes:
   pgdata-auth:
